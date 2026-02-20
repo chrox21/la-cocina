@@ -1,65 +1,239 @@
-import Image from "next/image";
+'use client';
+
+import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { Button } from '@/components/ui/button';
+import { MenuGrid } from '@/components/menu/MenuGrid';
+import { TimeBudget } from '@/components/menu/TimeBudget';
+import { ChatBox } from '@/components/chat/ChatBox';
+import { FridgeDialog } from '@/components/menu/FridgeDialog';
+import { useMenuStore } from '@/store/menu-store';
+import { mockMenuData } from '@/lib/utils/mock-data';
 
 export default function Home() {
-  return (
-    <div className="flex min-h-screen items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex min-h-screen w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
+  const router = useRouter();
+  const {
+    currentMenu,
+    setCurrentMenu,
+    isGenerating,
+    setGenerating,
+    setError,
+    error,
+    setChatMessages,
+  } = useMenuStore();
+
+  const [isInitialized, setIsInitialized] = useState(false);
+  const [showFridgeDialog, setShowFridgeDialog] = useState(false);
+  const [isApproving, setIsApproving] = useState(false);
+
+  // Load mock data on first render
+  useEffect(() => {
+    if (!isInitialized && !currentMenu) {
+      setCurrentMenu(mockMenuData);
+      setIsInitialized(true);
+    }
+  }, [isInitialized, currentMenu, setCurrentMenu]);
+
+  // Load chat messages when menu loads
+  useEffect(() => {
+    if (currentMenu?.id && !currentMenu.id.startsWith('mock-')) {
+      fetch(`/api/menu/chat?menuId=${currentMenu.id}`)
+        .then(res => res.json())
+        .then(data => {
+          if (data.success && data.messages) {
+            setChatMessages(data.messages);
+          }
+        })
+        .catch(err => console.error('Error loading chat messages:', err));
+    }
+  }, [currentMenu?.id, setChatMessages]);
+
+  const handleGenerateMenu = async () => {
+    try {
+      setGenerating(true);
+      setError(null);
+
+      const response = await fetch('/api/menu/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: 'Generate a weekly menu for me.' }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || 'Failed to generate menu');
+      }
+
+      // Update store with generated menu
+      setCurrentMenu(data.menu);
+      setChatMessages([]);
+    } catch (err) {
+      console.error('Error generating menu:', err);
+      setError(err instanceof Error ? err.message : 'Failed to generate menu');
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  const isMockMenu = currentMenu?.id?.startsWith('mock-') ?? true;
+
+  const handleApproveMenu = async () => {
+    if (!currentMenu?.id) return;
+
+    if (isMockMenu) {
+      setError('Please generate a real menu first before approving. The current menu is sample data.');
+      return;
+    }
+
+    try {
+      setIsApproving(true);
+      setError(null);
+
+      const response = await fetch('/api/menu/approve', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ menuId: currentMenu.id }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || 'Failed to approve menu');
+      }
+
+      // Update menu status locally
+      setCurrentMenu({ ...currentMenu, status: 'approved' } as typeof currentMenu);
+    } catch (err) {
+      console.error('Error approving menu:', err);
+      setError(err instanceof Error ? err.message : 'Failed to approve menu');
+    } finally {
+      setIsApproving(false);
+    }
+  };
+
+  if (!currentMenu) {
+    return (
+      <div className="min-h-screen bg-[#F5F0E8] flex items-center justify-center">
+        <div className="text-center">
+          <p className="text-lg font-sans text-[#5C5145]">Loading...</p>
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-[#F5F0E8]">
+      {/* Header */}
+      <header className="sticky top-0 z-50 bg-[#FFFDF8] border-b border-[#E8E0D4] shadow-sm">
+        <div className="max-w-[1280px] mx-auto px-6 py-4">
+          <div className="flex items-center justify-between">
+            {/* Logo */}
+            <div className="flex items-center gap-3">
+              <span className="text-3xl">🍳</span>
+              <div>
+                <h1 className="text-2xl font-serif font-bold text-[#2B2B2B] leading-none">
+                  La Cocina
+                </h1>
+                <p className="text-lg font-serif font-light text-[#8B6D47] leading-none">
+                  de Christian
+                </p>
+              </div>
+            </div>
+
+            {/* Header Buttons */}
+            <div className="flex items-center gap-3">
+              <Button
+                variant="outline"
+                onClick={handleGenerateMenu}
+                disabled={isGenerating}
+                className="text-sm font-sans border-[#E8E0D4] text-[#5C5145] hover:bg-[#F5F0E8]"
+              >
+                {isGenerating ? 'Generating...' : '🔄 Regenerate'}
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => setShowFridgeDialog(true)}
+                className="text-sm font-sans border-[#E8E0D4] text-[#5C5145] hover:bg-[#F5F0E8]"
+              >
+                🥶 Fridge Mode
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => router.push('/history')}
+                className="text-sm font-sans border-[#E8E0D4] text-[#5C5145] hover:bg-[#F5F0E8]"
+              >
+                📖 History
+              </Button>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      {/* Main Content */}
+      <main className="max-w-[1280px] mx-auto px-6 py-8">
+        <div className="flex gap-8">
+          {/* Left Column - Menu Cards (62%) */}
+          <div className="flex-[0.62]">
+            {/* Time Budget */}
+            <TimeBudget
+              totalMinutes={currentMenu.total_prep_time_minutes}
+              timeWarning={currentMenu.time_warning}
             />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
+
+            {/* Staple Recommendation */}
+            {currentMenu.staple_recommendations && (
+              <div className="mb-6 p-4 bg-[#FFFDF8] border-2 border-dashed border-[#E8E0D4] rounded-xl">
+                <h3 className="text-sm font-sans font-medium text-[#2B2B2B] mb-2">
+                  Recommended Staple
+                </h3>
+                <p className="text-sm font-sans text-[#5C5145]">
+                  {currentMenu.staple_recommendations}
+                </p>
+              </div>
+            )}
+
+            {/* Menu Grid */}
+            <MenuGrid items={currentMenu.items} menuId={currentMenu.id} />
+
+            {/* Error Display */}
+            {error && (
+              <div className="mt-6 p-4 bg-red-50 border border-red-200 rounded-xl">
+                <p className="text-sm font-sans text-red-800">{error}</p>
+              </div>
+            )}
+
+            {/* Action Buttons */}
+            <div className="mt-8 flex gap-3">
+              <Button
+                onClick={handleApproveMenu}
+                disabled={isGenerating || isApproving || isMockMenu}
+                className="flex-1 text-sm font-sans font-medium py-6 text-[#FFFDF8]"
+                style={{
+                  background: isGenerating || isApproving || isMockMenu
+                    ? '#A0937D'
+                    : 'linear-gradient(135deg, #2D5016, #3D6B22)',
+                }}
+              >
+                {isApproving ? 'Approving...' : isMockMenu ? 'Generate a Menu First' : 'Approve Menu & Generate Recipes'}
+              </Button>
+            </div>
+          </div>
+
+          {/* Right Column - Chat Panel (35%) */}
+          <div className="flex-[0.35] max-w-[400px]">
+            <div className="sticky top-24 h-[calc(100vh-8rem)]">
+              <ChatBox />
+            </div>
+          </div>
         </div>
       </main>
+
+      {/* Fridge Mode Dialog */}
+      <FridgeDialog
+        open={showFridgeDialog}
+        onClose={() => setShowFridgeDialog(false)}
+      />
     </div>
   );
 }
