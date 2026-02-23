@@ -33,8 +33,14 @@ export function MenuCard({ item, menuId }: MenuCardProps) {
   const [showServingsDialog, setShowServingsDialog] = useState(false);
   const [isSwapping, setIsSwapping] = useState(false);
 
-  const { updateMenuItem, setCurrentMenu, currentMenu } = useMenuStore();
+  const { updateMenuItem, setCurrentMenu, currentMenu, recipeStates, setRecipeState } = useMenuStore();
   const displayServings = item.user_servings_override || item.servings;
+
+  // Get recipe state for this item
+  const recipeState = item.id ? recipeStates[item.id] : undefined;
+  const isGeneratingRecipe = recipeState?.status === 'generating';
+  const isApproved = recipeState?.status === 'approved';
+  const recipeId = recipeState?.recipeId;
 
   const handleSwap = async () => {
     if (!menuId || !item.id) return;
@@ -57,9 +63,11 @@ export function MenuCard({ item, menuId }: MenuCardProps) {
       if (data.success) {
         setSwapAlternatives(data.alternatives);
         setShowSwapDialog(true);
+      } else {
+        console.error('[MenuCard] Swap failed:', data.error);
       }
     } catch (error) {
-      console.error('Error fetching swap alternatives:', error);
+      console.error('[MenuCard] Error fetching swap alternatives:', error);
     } finally {
       setIsSwapping(false);
     }
@@ -102,9 +110,77 @@ export function MenuCard({ item, menuId }: MenuCardProps) {
     setShowServingsDialog(false);
   };
 
+  const handleApprove = async () => {
+    if (!item.id) return;
+
+    // Capture the exact serving size at the moment of approval
+    const approvedServings = displayServings;
+
+    // Set generating state
+    setRecipeState(item.id, { status: 'generating' });
+
+    try {
+      const response = await fetch('/api/recipes/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          menuItemId: item.id,
+          nameEn: item.name_en,
+          nameEs: item.name_es,
+          cuisine: item.cuisine,
+          itemType: item.item_type,
+          description: item.description,
+          servings: approvedServings,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (data.success && data.recipe?.id) {
+        setRecipeState(item.id, { status: 'approved', recipeId: data.recipe.id });
+      } else {
+        console.error('[MenuCard] Recipe generation failed:', data.error);
+        setRecipeState(item.id, { status: 'idle' });
+      }
+    } catch (error) {
+      console.error('[MenuCard] Error generating recipe:', error);
+      setRecipeState(item.id, { status: 'idle' });
+    }
+  };
+
+  const handleViewRecipe = () => {
+    if (recipeId) {
+      window.open(`/recipe/${recipeId}`, '_blank');
+    }
+  };
+
+  // Card border changes based on state
+  const cardBorderClass = isApproved
+    ? 'border-[#3D6B22]'
+    : isGeneratingRecipe
+      ? 'border-[#8B6D47]'
+      : 'border-[#E8E0D4]';
+
   return (
     <>
-      <Card className="bg-[#FFFDF8] border-[#E8E0D4] rounded-xl p-5 hover:-translate-y-0.5 transition-transform duration-200 shadow-sm hover:shadow-md">
+      <Card className={`bg-[#FFFDF8] ${cardBorderClass} rounded-xl p-5 hover:-translate-y-0.5 transition-all duration-200 shadow-sm hover:shadow-md relative`}>
+        {/* Generating overlay */}
+        {isGeneratingRecipe && (
+          <div className="absolute inset-0 bg-[#FFFDF8]/60 rounded-xl flex items-center justify-center z-10">
+            <div className="flex flex-col items-center gap-2">
+              <div className="w-6 h-6 border-2 border-[#3D6B22] border-t-transparent rounded-full animate-spin" />
+              <span className="text-xs font-sans font-medium text-[#5C5145]">Generating recipe...</span>
+            </div>
+          </div>
+        )}
+
+        {/* Approved indicator */}
+        {isApproved && (
+          <div className="absolute top-3 right-3">
+            <span className="text-lg" title="Recipe approved">✅</span>
+          </div>
+        )}
+
         {/* Type Icon + Label */}
       <div className="flex items-center gap-2 mb-3">
         <span className="text-xl">{itemTypeIcons[item.item_type]}</span>
@@ -146,25 +222,52 @@ export function MenuCard({ item, menuId }: MenuCardProps) {
         </div>
       </div>
 
-        {/* Action Buttons */}
+        {/* Action Buttons — change based on card state */}
         <div className="flex gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleSwap}
-            disabled={isSwapping}
-            className="flex-1 text-xs font-sans border-[#E8E0D4] text-[#5C5145] hover:bg-[#F5F0E8]"
-          >
-            {isSwapping ? 'Loading...' : 'Swap'}
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleServingsChange}
-            className="flex-1 text-xs font-sans border-[#E8E0D4] text-[#5C5145] hover:bg-[#F5F0E8]"
-          >
-            Servings
-          </Button>
+          {isApproved ? (
+            /* State 3: Approved — View Recipe button */
+            <Button
+              size="sm"
+              onClick={handleViewRecipe}
+              className="flex-1 text-xs font-sans font-medium text-[#FFFDF8]"
+              style={{ background: 'linear-gradient(135deg, #2D5016, #3D6B22)' }}
+            >
+              View Recipe
+            </Button>
+          ) : (
+            /* State 1: Unapproved — Swap, Servings, Approve */
+            <>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleSwap}
+                disabled={isSwapping || isGeneratingRecipe}
+                className="flex-1 text-xs font-sans border-[#E8E0D4] text-[#5C5145] hover:bg-[#F5F0E8]"
+              >
+                {isSwapping ? 'Loading...' : 'Swap'}
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleServingsChange}
+                disabled={isGeneratingRecipe}
+                className="flex-1 text-xs font-sans border-[#E8E0D4] text-[#5C5145] hover:bg-[#F5F0E8]"
+              >
+                Servings
+              </Button>
+              <Button
+                size="sm"
+                onClick={handleApprove}
+                disabled={isGeneratingRecipe}
+                className="flex-1 text-xs font-sans font-medium text-[#FFFDF8]"
+                style={{
+                  background: isGeneratingRecipe ? '#A0937D' : 'linear-gradient(135deg, #2D5016, #3D6B22)',
+                }}
+              >
+                Approve
+              </Button>
+            </>
+          )}
         </div>
       </Card>
 

@@ -48,6 +48,7 @@ export async function POST(request: Request) {
         { status: 404 }
       );
     }
+    console.log('[API] Swap - Found item:', itemToSwap.name_en, 'cuisine:', itemToSwap.cuisine);
 
     // Step 3: Find paired item if this is part of a pairing
     let pairedItem;

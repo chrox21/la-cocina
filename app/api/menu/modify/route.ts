@@ -39,15 +39,22 @@ export async function POST(request: Request) {
     // Step 4: Apply modifications to menu
     console.log('[API] Applying modifications...');
     const itemsToUpdate = modificationResponse.modifications.items_to_update;
+
+    // Normalize items_to_update: Claude sometimes returns item_type in uppercase
+    const normalizedUpdates = itemsToUpdate.map(u => ({
+      ...u,
+      item_type: (u.item_type as string).toLowerCase() as typeof u.item_type,
+    }));
+
     const updatedItems = currentMenu.items.map((item) => {
       // Primary match: sort_order + item_type (most reliable)
-      let update = itemsToUpdate.find(
+      let update = normalizedUpdates.find(
         (updated) => updated.sort_order === item.sort_order && updated.item_type === item.item_type
       );
 
       // Fallback match: item_type + pairing_group (in case sort_order is missing/wrong)
       if (!update) {
-        update = itemsToUpdate.find(
+        update = normalizedUpdates.find(
           (updated) => updated.item_type === item.item_type && updated.pairing_group === item.pairing_group
         );
       }

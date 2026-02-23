@@ -327,3 +327,119 @@ export function getModificationSchemaString(): string {
 export function getSwapSchemaString(): string {
   return JSON.stringify(swapAlternativesJsonSchema, null, 2);
 }
+
+// ============================================================================
+// Recipe Generation Schemas
+// ============================================================================
+
+/**
+ * Response format for recipe generation
+ */
+export interface RecipeGenerationResponse {
+  full_recipe_es: string;
+  ingredients: Array<{
+    name_es: string;
+    name_en: string;
+    quantity: number;
+    unit: string;
+    category: string;
+    preparation?: string;
+  }>;
+  yield_statement: string;
+  equipment: string[];
+}
+
+/**
+ * JSON schema for recipe generation response
+ */
+export const recipeGenerationJsonSchema = {
+  type: 'object',
+  required: ['full_recipe_es', 'ingredients', 'yield_statement', 'equipment'],
+  properties: {
+    full_recipe_es: {
+      type: 'string',
+      description: 'Complete recipe text in Mexican Spanish (Markdown formatted)'
+    },
+    ingredients: {
+      type: 'array',
+      items: {
+        type: 'object',
+        required: ['name_es', 'name_en', 'quantity', 'unit', 'category'],
+        properties: {
+          name_es: { type: 'string', description: 'Ingredient name in Mexican Spanish' },
+          name_en: { type: 'string', description: 'Ingredient name in English' },
+          quantity: { type: 'number', description: 'Amount needed' },
+          unit: { type: 'string', description: 'Unit of measurement (g, ml, cups, piezas, etc.)' },
+          category: {
+            type: 'string',
+            enum: ['produce', 'proteins', 'dairy', 'grains', 'pantry', 'spices', 'liquids', 'other'],
+            description: 'Shopping list category'
+          },
+          preparation: { type: 'string', description: 'Preparation notes (optional, e.g., "picado finamente")' }
+        }
+      }
+    },
+    yield_statement: {
+      type: 'string',
+      description: 'Precise yield statement (e.g., "Rinde: 4 porciones de aproximadamente 250g cada una")'
+    },
+    equipment: {
+      type: 'array',
+      items: { type: 'string' },
+      description: 'List of equipment needed'
+    }
+  }
+};
+
+/**
+ * Validate a recipe generation response
+ */
+export function validateRecipeResponse(response: unknown): RecipeGenerationResponse {
+  if (!response || typeof response !== 'object') {
+    throw new Error('Response must be an object');
+  }
+
+  const r = response as Record<string, unknown>;
+
+  if (typeof r.full_recipe_es !== 'string' || r.full_recipe_es.length < 100) {
+    throw new Error('full_recipe_es must be a substantial string');
+  }
+
+  if (!Array.isArray(r.ingredients) || r.ingredients.length === 0) {
+    throw new Error('ingredients must be a non-empty array');
+  }
+
+  if (typeof r.yield_statement !== 'string') {
+    throw new Error('yield_statement must be a string');
+  }
+
+  if (!Array.isArray(r.equipment)) {
+    throw new Error('equipment must be an array');
+  }
+
+  // Validate each ingredient has required fields
+  r.ingredients.forEach((ing, index: number) => {
+    const i = ing as Record<string, unknown>;
+    if (!i.name_es || !i.name_en) {
+      throw new Error(`Ingredient ${index}: missing name_es or name_en`);
+    }
+    if (typeof i.quantity !== 'number') {
+      throw new Error(`Ingredient ${index}: quantity must be a number`);
+    }
+    if (!i.unit) {
+      throw new Error(`Ingredient ${index}: missing unit`);
+    }
+    if (!i.category) {
+      throw new Error(`Ingredient ${index}: missing category`);
+    }
+  });
+
+  return response as RecipeGenerationResponse;
+}
+
+/**
+ * Get recipe schema as formatted string for prompt injection
+ */
+export function getRecipeSchemaString(): string {
+  return JSON.stringify(recipeGenerationJsonSchema, null, 2);
+}

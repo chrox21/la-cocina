@@ -24,7 +24,9 @@ export default function Home() {
 
   const [isInitialized, setIsInitialized] = useState(false);
   const [showFridgeDialog, setShowFridgeDialog] = useState(false);
-  const [isApproving, setIsApproving] = useState(false);
+  const [isApprovingAll, setIsApprovingAll] = useState(false);
+
+  const { recipeStates, setRecipeState } = useMenuStore();
 
   // Load mock data on first render
   useEffect(() => {
@@ -78,38 +80,99 @@ export default function Home() {
 
   const isMockMenu = currentMenu?.id?.startsWith('mock-') ?? true;
 
-  const handleApproveMenu = async () => {
-    if (!currentMenu?.id) return;
+  // Count approved items for View All button state
+  const approvedCount = currentMenu
+    ? currentMenu.items.filter((item) => item.id && recipeStates[item.id]?.status === 'approved').length
+    : 0;
+  const anyGenerating = currentMenu
+    ? currentMenu.items.some((item) => item.id && recipeStates[item.id]?.status === 'generating')
+    : false;
+
+  const handleApproveAll = async () => {
+    if (!currentMenu?.items) return;
 
     if (isMockMenu) {
       setError('Please generate a real menu first before approving. The current menu is sample data.');
       return;
     }
 
-    try {
-      setIsApproving(true);
-      setError(null);
+    setIsApprovingAll(true);
+    setError(null);
 
-      const response = await fetch('/api/menu/approve', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ menuId: currentMenu.id }),
-      });
+    // Find all unapproved items (skip items already approved or generating)
+    const itemsToApprove = currentMenu.items.filter((item) => {
+      if (!item.id) return false;
+      const state = recipeStates[item.id];
+      return !state || state.status === 'idle';
+    });
 
-      const data = await response.json();
-
-      if (!response.ok || !data.success) {
-        throw new Error(data.error || 'Failed to approve menu');
-      }
-
-      // Update menu status locally
-      setCurrentMenu({ ...currentMenu, status: 'approved' } as typeof currentMenu);
-    } catch (err) {
-      console.error('Error approving menu:', err);
-      setError(err instanceof Error ? err.message : 'Failed to approve menu');
-    } finally {
-      setIsApproving(false);
+    if (itemsToApprove.length === 0) {
+      setIsApprovingAll(false);
+      return;
     }
+
+    // Set all to generating
+    itemsToApprove.forEach((item) => {
+      if (item.id) {
+        setRecipeState(item.id, { status: 'generating' });
+      }
+    });
+
+    // Fire all recipe generation calls in parallel
+    const results = await Promise.allSettled(
+      itemsToApprove.map(async (item) => {
+        if (!item.id) return;
+
+        const approvedServings = item.user_servings_override || item.servings;
+
+        try {
+          const response = await fetch('/api/recipes/generate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              menuItemId: item.id,
+              nameEn: item.name_en,
+              nameEs: item.name_es,
+              cuisine: item.cuisine,
+              itemType: item.item_type,
+              description: item.description,
+              servings: approvedServings,
+            }),
+          });
+
+          const data = await response.json();
+
+          if (data.success && data.recipe?.id) {
+            setRecipeState(item.id, { status: 'approved', recipeId: data.recipe.id });
+          } else {
+            console.error(`[ApproveAll] Recipe generation failed for ${item.name_en}:`, data.error);
+            setRecipeState(item.id, { status: 'idle' });
+          }
+        } catch (error) {
+          console.error(`[ApproveAll] Error generating recipe for ${item.name_en}:`, error);
+          setRecipeState(item.id, { status: 'idle' });
+        }
+      })
+    );
+
+    const failedCount = results.filter((r) => r.status === 'rejected').length;
+    if (failedCount > 0) {
+      setError(`${failedCount} recipe(s) failed to generate. You can retry by clicking Approve on individual cards.`);
+    }
+
+    setIsApprovingAll(false);
+  };
+
+  const handleViewAll = () => {
+    if (!currentMenu?.items) return;
+
+    currentMenu.items.forEach((item) => {
+      if (!item.id) return;
+      const state = recipeStates[item.id];
+      if (state?.status === 'approved' && state.recipeId) {
+        window.open(`/recipe/${state.recipeId}`, '_blank');
+      }
+    });
   };
 
   if (!currentMenu) {
@@ -206,16 +269,24 @@ export default function Home() {
             {/* Action Buttons */}
             <div className="mt-8 flex gap-3">
               <Button
-                onClick={handleApproveMenu}
-                disabled={isGenerating || isApproving || isMockMenu}
+                onClick={handleApproveAll}
+                disabled={isGenerating || isApprovingAll || anyGenerating || isMockMenu}
                 className="flex-1 text-sm font-sans font-medium py-6 text-[#FFFDF8]"
                 style={{
-                  background: isGenerating || isApproving || isMockMenu
+                  background: isGenerating || isApprovingAll || anyGenerating || isMockMenu
                     ? '#A0937D'
                     : 'linear-gradient(135deg, #2D5016, #3D6B22)',
                 }}
               >
-                {isApproving ? 'Approving...' : isMockMenu ? 'Generate a Menu First' : 'Approve Menu & Generate Recipes'}
+                {isApprovingAll || anyGenerating ? 'Generating Recipes...' : isMockMenu ? 'Generate a Menu First' : 'Approve All'}
+              </Button>
+              <Button
+                onClick={handleViewAll}
+                disabled={approvedCount === 0}
+                variant="outline"
+                className="text-sm font-sans font-medium py-6 px-6 border-[#E8E0D4] text-[#5C5145] hover:bg-[#F5F0E8]"
+              >
+                View All ({approvedCount})
               </Button>
             </div>
           </div>

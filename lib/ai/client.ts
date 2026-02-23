@@ -5,13 +5,37 @@ import {
   MenuModificationResponse,
   validateModificationResponse,
   SwapAlternativesResponse,
-  validateSwapResponse
+  validateSwapResponse,
+  RecipeGenerationResponse,
+  validateRecipeResponse
 } from './schemas';
 
 // Initialize Anthropic client (will throw at runtime if key is missing)
 const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY || '',
 });
+
+/**
+ * Extract JSON from Claude's response, handling markdown code fences.
+ * Claude often wraps JSON in ```json ... ``` or ``` ... ``` blocks.
+ */
+function extractJSON(text: string): string {
+  // Try to find JSON inside markdown code fences
+  const codeBlockMatch = text.match(/```(?:json)?\s*\n?([\s\S]*?)\n?\s*```/);
+  if (codeBlockMatch) {
+    console.log('[Claude API] Stripped markdown code fences from response');
+    return codeBlockMatch[1].trim();
+  }
+
+  // Try to find a JSON object directly (first { to last })
+  const jsonMatch = text.match(/\{[\s\S]*\}/);
+  if (jsonMatch) {
+    return jsonMatch[0].trim();
+  }
+
+  // Return as-is if no patterns found
+  return text.trim();
+}
 
 /**
  * Generate a menu using Claude API
@@ -45,20 +69,19 @@ export async function generateMenuWithClaude(
       .map((block) => ('text' in block ? block.text : ''))
       .join('');
 
-    console.log('[Claude API] Response received, parsing JSON...');
+    // Extract JSON (handles markdown code fences)
+    const jsonString = extractJSON(textContent);
 
     // Parse JSON response
     let parsedResponse;
     try {
-      parsedResponse = JSON.parse(textContent);
+      parsedResponse = JSON.parse(jsonString);
     } catch (parseError) {
-      console.error('[Claude API] JSON parse error:', parseError);
-      console.error('[Claude API] Raw response:', textContent);
+      console.error('[Claude API] JSON parse error. Raw response:', textContent.substring(0, 500));
       throw new Error('Failed to parse JSON response from Claude');
     }
 
     // Validate response against schema
-    console.log('[Claude API] Validating response...');
     const validatedResponse = validateMenuResponse(parsedResponse);
 
     console.log('[Claude API] Menu generation successful!');
@@ -135,23 +158,22 @@ export async function modifyMenuWithClaude(
       .map((block) => ('text' in block ? block.text : ''))
       .join('');
 
-    console.log('[Claude API] Response received, parsing JSON...');
+    // Extract JSON (handles markdown code fences)
+    const jsonString = extractJSON(textContent);
 
     // Parse JSON response
     let parsedResponse;
     try {
-      parsedResponse = JSON.parse(textContent);
+      parsedResponse = JSON.parse(jsonString);
     } catch (parseError) {
-      console.error('[Claude API] JSON parse error:', parseError);
-      console.error('[Claude API] Raw response:', textContent);
+      console.error('[Claude API] Modify JSON parse error. Raw response:', textContent.substring(0, 500));
       throw new Error('Failed to parse JSON response from Claude');
     }
 
     // Validate response against schema
-    console.log('[Claude API] Validating response...');
     const validatedResponse = validateModificationResponse(parsedResponse);
 
-    console.log('[Claude API] Menu modification successful!');
+    console.log('[Claude API] Menu modification successful! Items to update:', parsedResponse.modifications?.items_to_update?.length);
     return validatedResponse;
   } catch (error) {
     console.error('[Claude API] Error modifying menu:', error);
@@ -189,26 +211,82 @@ export async function getSwapAlternatives(
       .map((block) => ('text' in block ? block.text : ''))
       .join('');
 
-    console.log('[Claude API] Response received, parsing JSON...');
+    // Extract JSON (handles markdown code fences)
+    const jsonString = extractJSON(textContent);
 
     // Parse JSON response
     let parsedResponse;
     try {
-      parsedResponse = JSON.parse(textContent);
+      parsedResponse = JSON.parse(jsonString);
     } catch (parseError) {
-      console.error('[Claude API] JSON parse error:', parseError);
-      console.error('[Claude API] Raw response:', textContent);
+      console.error('[Claude API] Swap JSON parse error. Raw response:', textContent.substring(0, 500));
       throw new Error('Failed to parse JSON response from Claude');
     }
 
     // Validate response against schema
-    console.log('[Claude API] Validating response...');
     const validatedResponse = validateSwapResponse(parsedResponse);
 
-    console.log('[Claude API] Swap alternatives retrieved!');
+    console.log('[Claude API] Swap alternatives retrieved! Count:', parsedResponse.alternatives?.length);
     return validatedResponse;
   } catch (error) {
     console.error('[Claude API] Error getting swap alternatives:', error);
+    throw error;
+  }
+}
+
+// ============================================================================
+// Recipe Generation Functions
+// ============================================================================
+
+/**
+ * Generate a complete recipe using Claude API
+ * @param systemPrompt System prompt with recipe requirements
+ * @returns Parsed and validated recipe response
+ */
+export async function generateRecipeWithClaude(
+  systemPrompt: string
+): Promise<RecipeGenerationResponse> {
+  try {
+    console.log('[Claude API] Sending recipe generation request...');
+
+    const response = await anthropic.messages.create({
+      model: 'claude-sonnet-4-6',
+      max_tokens: 8192,
+      temperature: 0.7,
+      system: systemPrompt,
+      messages: [
+        {
+          role: 'user',
+          content: 'Generate the complete recipe.',
+        },
+      ],
+    });
+
+    // Extract text content
+    const textContent = response.content
+      .filter((block) => block.type === 'text')
+      .map((block) => ('text' in block ? block.text : ''))
+      .join('');
+
+    // Extract JSON (handles markdown code fences)
+    const jsonString = extractJSON(textContent);
+
+    // Parse JSON response
+    let parsedResponse;
+    try {
+      parsedResponse = JSON.parse(jsonString);
+    } catch (parseError) {
+      console.error('[Claude API] Recipe JSON parse error. Raw response:', textContent.substring(0, 500));
+      throw new Error('Failed to parse JSON response from Claude');
+    }
+
+    // Validate response against schema
+    const validatedResponse = validateRecipeResponse(parsedResponse);
+
+    console.log('[Claude API] Recipe generation successful! Ingredients count:', validatedResponse.ingredients.length);
+    return validatedResponse;
+  } catch (error) {
+    console.error('[Claude API] Error generating recipe:', error);
     throw error;
   }
 }

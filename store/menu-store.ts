@@ -30,6 +30,11 @@ export interface ChatMessage {
   timestamp: Date;
 }
 
+export interface RecipeState {
+  status: 'idle' | 'generating' | 'approved';
+  recipeId?: string;
+}
+
 interface MenuStore {
   // State
   currentMenu: MenuData | null;
@@ -37,6 +42,7 @@ interface MenuStore {
   isGenerating: boolean;
   error: string | null;
   isChatLoading: boolean;
+  recipeStates: Record<string, RecipeState>;
 
   // Actions
   setCurrentMenu: (menu: MenuData | null) => void;
@@ -46,6 +52,8 @@ interface MenuStore {
   setError: (error: string | null) => void;
   clearMenu: () => void;
   setChatLoading: (loading: boolean) => void;
+  setRecipeState: (itemId: string, state: RecipeState) => void;
+  clearRecipeStates: () => void;
 
   // Update individual menu item (for servings adjustments)
   updateMenuItem: (itemId: string, updates: Partial<MenuItem>) => void;
@@ -58,6 +66,7 @@ export const useMenuStore = create<MenuStore>((set) => ({
   isGenerating: false,
   error: null,
   isChatLoading: false,
+  recipeStates: {},
 
   // Actions
   setCurrentMenu: (menu) =>
@@ -83,10 +92,19 @@ export const useMenuStore = create<MenuStore>((set) => ({
       chatMessages: [],
       error: null,
       isGenerating: false,
+      recipeStates: {},
     }),
 
   setChatLoading: (loading) =>
     set({ isChatLoading: loading }),
+
+  setRecipeState: (itemId, state) =>
+    set((prev) => ({
+      recipeStates: { ...prev.recipeStates, [itemId]: state },
+    })),
+
+  clearRecipeStates: () =>
+    set({ recipeStates: {} }),
 
   updateMenuItem: (itemId, updates) =>
     set((state) => {

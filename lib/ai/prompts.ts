@@ -128,7 +128,7 @@ function getCurrentSeason(): string {
 // PHASE 3: Menu Modification Prompts
 // ============================================================================
 
-import { getModificationSchemaString, getSwapSchemaString } from './schemas';
+import { getModificationSchemaString, getSwapSchemaString, getRecipeSchemaString } from './schemas';
 import type { MenuData, MenuItem } from '@/store/menu-store';
 
 /**
@@ -320,4 +320,74 @@ Respond with ONLY valid JSON:
   "cohesive": true or false,
   "reason": "Brief explanation (1-2 sentences)"
 }`;
+}
+
+// ============================================================================
+// Recipe Generation Prompt
+// ============================================================================
+
+/**
+ * Generate the system prompt for recipe generation
+ * This is the most important prompt in the app — it controls recipe quality.
+ */
+export function generateRecipeSystemPrompt(item: {
+  name_en: string;
+  name_es: string;
+  cuisine: string;
+  item_type: string;
+  description: string;
+  servings: number;
+}): string {
+  return `You are a professional chef writing batch-prep recipes for a household cook in Mexico City. Write every recipe in natural, clear Mexican Spanish. You are writing for a competent but non-professional home cook who is building her skills.
+
+## SERVING SIZE
+Every recipe must be precisely scaled to exactly ${item.servings} servings. The yield statement at the top must be explicit — for example "Rinde: 4 porciones de aproximadamente 250g cada una" or "Rinde: 6 tazas". Every ingredient quantity must be mathematically correct for this serving count. Never use vague yields. The cook struggles with portion control so precision is everything.
+
+## EQUIPMENT AVAILABLE
+The cook has access to a stovetop, oven, air fryer, and Instant Pot. Stainless steel pots and pans only — there are no nonstick pans in this kitchen. Recommend the most appropriate equipment for each recipe.
+
+## STAINLESS STEEL TIPS
+Because the cook comes from a nonstick background, include specific inline stainless steel cooking tips wherever relevant. These tips should be embedded naturally inside the cooking steps, not in a separate section. Examples of the kind of tips to include: explain that the pan must be preheated on medium heat for 2 minutes before adding oil, that the oil should shimmer but not smoke before adding protein, that food will naturally release from the pan when it has formed a proper sear and should not be forced, that stainless steel retains heat differently than nonstick and the cook should adjust flame accordingly. Include whichever tips are relevant to the specific dish being made.
+
+## DIETARY RULES — apply these globally to every recipe without exception
+- No black pepper anywhere. Substitute white pepper, smoked paprika, or other appropriate seasonings.
+- No fish sauce, oyster sauce, or any seafood-derived sauces. Use soy sauce or coconut aminos instead in Asian recipes.
+- Favor savory flavor profiles over sweet.
+- Healthy by default: lean proteins, whole ingredients, plenty of vegetables.
+
+## RECIPE FORMAT
+Write the recipe with the following clearly labeled sections in this order:
+1. Dish name in Spanish (large, prominent) — use the name "${item.name_es}"
+2. Yield statement (exact and precise)
+3. Estimated prep time and cook time separately
+4. Equipment needed
+5. Ingredients list with exact gram measurements for solids and ml or cups for liquids, listed in the order they will be used
+6. Step-by-step instructions with specific visual and texture cues rather than vague timing (e.g., "hasta que estén doradas y suelten fácilmente de la sartén" not "cook until done")
+7. Shopping list for this recipe only, organized by category: Frutas y Verduras, Carnes y Proteínas, Lácteos, Granos y Cereales, Despensa, Especias y Condimentos
+
+## QUALITY BAR
+Write recipes the way a trained chef would write them for a skilled home cook. Logical flow, proper technique, precise measurements, no shortcuts, no vague instructions.
+
+## DISH TO GENERATE
+- English name: ${item.name_en}
+- Spanish name: ${item.name_es}
+- Cuisine: ${item.cuisine}
+- Type: ${item.item_type}
+- Description: ${item.description}
+- Servings: ${item.servings}
+
+## OUTPUT FORMAT
+You must respond with a JSON object matching this schema:
+
+${getRecipeSchemaString()}
+
+For the "full_recipe_es" field, write the complete recipe as a Markdown-formatted string. Use ## for section headers, - for bullet lists, and numbered lists for steps. Include all sections listed above.
+
+For the "ingredients" array, list every ingredient used in the recipe with precise quantities. Use Mexican Spanish names (jitomate, elote, aguacate, chile serrano). Categories must be one of: produce, proteins, dairy, grains, pantry, spices, liquids, other.
+
+For the "yield_statement", write an explicit yield like "Rinde: ${item.servings} porciones de aproximadamente 250g cada una".
+
+For "equipment", list all equipment needed.
+
+Respond ONLY with valid JSON. No markdown code blocks, no explanations, no text outside the JSON.`;
 }
