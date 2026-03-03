@@ -3,6 +3,9 @@ import { generateRecipeWithClaude } from '@/lib/ai/client';
 import { generateRecipeSystemPrompt } from '@/lib/ai/prompts';
 import { saveRecipe } from '@/lib/db/recipes';
 
+// Vercel Hobby plan defaults to 10s; recipe generation takes 20-30s
+export const maxDuration = 60;
+
 interface RecipeGenerateRequest {
   menuItemId: string;
   nameEn: string;

@@ -4,6 +4,8 @@ import { generateSwapSystemPrompt, formatMenuHistory } from '@/lib/ai/prompts';
 import { getMenuById, getRecentMenus } from '@/lib/db/menus';
 import type { MenuData } from '@/store/menu-store';
 
+export const maxDuration = 60;
+
 export async function POST(request: Request) {
   try {
     console.log('[API] Swap alternatives request received');

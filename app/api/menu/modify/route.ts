@@ -4,6 +4,8 @@ import { generateModificationSystemPrompt, formatMenuHistory } from '@/lib/ai/pr
 import { getRecentMenus, updateMenuItems, saveChatMessage } from '@/lib/db/menus';
 import type { MenuData } from '@/store/menu-store';
 
+export const maxDuration = 60;
+
 export async function POST(request: Request) {
   try {
     console.log('[API] Menu modification request received');

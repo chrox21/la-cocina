@@ -31,8 +31,9 @@ export interface ChatMessage {
 }
 
 export interface RecipeState {
-  status: 'idle' | 'generating' | 'approved';
+  status: 'idle' | 'generating' | 'approved' | 'error';
   recipeId?: string;
+  errorMessage?: string;
 }
 
 interface MenuStore {

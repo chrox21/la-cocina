@@ -4,6 +4,8 @@ import { generateMenuSystemPrompt, formatMenuHistory } from '@/lib/ai/prompts';
 import { getRecentMenus, createDraftMenu, type Menu } from '@/lib/db/menus';
 import { randomUUID } from 'crypto';
 
+export const maxDuration = 60;
+
 export async function POST(request: Request) {
   try {
     console.log('[API] Menu generation request received');

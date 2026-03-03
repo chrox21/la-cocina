@@ -40,6 +40,7 @@ export function MenuCard({ item, menuId }: MenuCardProps) {
   const recipeState = item.id ? recipeStates[item.id] : undefined;
   const isGeneratingRecipe = recipeState?.status === 'generating';
   const isApproved = recipeState?.status === 'approved';
+  const hasError = recipeState?.status === 'error';
   const recipeId = recipeState?.recipeId;
 
   const handleSwap = async () => {
@@ -140,11 +141,17 @@ export function MenuCard({ item, menuId }: MenuCardProps) {
         setRecipeState(item.id, { status: 'approved', recipeId: data.recipe.id });
       } else {
         console.error('[MenuCard] Recipe generation failed:', data.error);
-        setRecipeState(item.id, { status: 'idle' });
+        setRecipeState(item.id, {
+          status: 'error',
+          errorMessage: data.error || 'Recipe generation failed. Try again.',
+        });
       }
     } catch (error) {
       console.error('[MenuCard] Error generating recipe:', error);
-      setRecipeState(item.id, { status: 'idle' });
+      setRecipeState(item.id, {
+        status: 'error',
+        errorMessage: 'Network error — check your connection and try again.',
+      });
     }
   };
 
@@ -157,9 +164,11 @@ export function MenuCard({ item, menuId }: MenuCardProps) {
   // Card border changes based on state
   const cardBorderClass = isApproved
     ? 'border-[#3D6B22]'
-    : isGeneratingRecipe
-      ? 'border-[#8B6D47]'
-      : 'border-[#E8E0D4]';
+    : hasError
+      ? 'border-red-400'
+      : isGeneratingRecipe
+        ? 'border-[#8B6D47]'
+        : 'border-[#E8E0D4]';
 
   return (
     <>
@@ -178,6 +187,13 @@ export function MenuCard({ item, menuId }: MenuCardProps) {
         {isApproved && (
           <div className="absolute top-3 right-3">
             <span className="text-lg" title="Recipe approved">✅</span>
+          </div>
+        )}
+
+        {/* Error indicator */}
+        {hasError && (
+          <div className="absolute top-3 right-3">
+            <span className="text-lg" title="Recipe generation failed">⚠️</span>
           </div>
         )}
 
@@ -222,6 +238,13 @@ export function MenuCard({ item, menuId }: MenuCardProps) {
         </div>
       </div>
 
+        {/* Error message */}
+        {hasError && recipeState?.errorMessage && (
+          <p className="text-xs font-sans text-red-600 mb-3">
+            {recipeState.errorMessage}
+          </p>
+        )}
+
         {/* Action Buttons — change based on card state */}
         <div className="flex gap-2">
           {isApproved ? (
@@ -233,6 +256,15 @@ export function MenuCard({ item, menuId }: MenuCardProps) {
               style={{ background: 'linear-gradient(135deg, #2D5016, #3D6B22)' }}
             >
               View Recipe
+            </Button>
+          ) : hasError ? (
+            /* State 4: Error — Retry button */
+            <Button
+              size="sm"
+              onClick={handleApprove}
+              className="flex-1 text-xs font-sans font-medium text-[#FFFDF8] bg-red-500 hover:bg-red-600"
+            >
+              Retry
             </Button>
           ) : (
             /* State 1: Unapproved — Swap, Servings, Approve */
