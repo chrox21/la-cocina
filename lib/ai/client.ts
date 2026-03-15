@@ -261,7 +261,7 @@ export async function generateRecipeWithClaude(
         },
       ],
     }, {
-      timeout: 50 * 1000, // 50s — leaves ~10s headroom within Vercel's 60s maxDuration
+      timeout: 120 * 1000, // 120s — streaming heartbeat keeps Vercel alive, so Claude gets plenty of time
     });
 
     // Extract text content

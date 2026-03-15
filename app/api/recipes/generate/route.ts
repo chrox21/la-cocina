@@ -1,9 +1,8 @@
-import { NextResponse } from 'next/server';
 import { generateRecipeWithClaude } from '@/lib/ai/client';
 import { generateRecipeSystemPrompt } from '@/lib/ai/prompts';
 import { saveRecipe } from '@/lib/db/recipes';
 
-// Vercel Hobby plan defaults to 10s; recipe generation takes 20-30s
+// Fallback for non-streaming environments; Vercel Hobby max is 60s
 export const maxDuration = 60;
 
 interface RecipeGenerateRequest {
@@ -17,79 +16,100 @@ interface RecipeGenerateRequest {
 }
 
 export async function POST(request: Request) {
+  // Validate request body before starting the stream
+  let body: RecipeGenerateRequest;
   try {
-    console.log('[API] Recipe generation request received');
-
-    const body: RecipeGenerateRequest = await request.json();
-    const { menuItemId, nameEn, nameEs, cuisine, itemType, description, servings } = body;
-
-    // Validate required fields
-    if (!menuItemId || !nameEn || !nameEs || !cuisine || !itemType || !description || !servings) {
-      console.error('[API] Missing required fields:', { menuItemId, nameEn, nameEs, cuisine, itemType, description, servings });
-      return NextResponse.json(
-        { success: false, error: 'Missing required fields' },
-        { status: 400 }
-      );
-    }
-
-    console.log(`[API] Generating recipe for: "${nameEn}" (${nameEs})`);
-    console.log(`[API] Serving size received: ${servings}`);
-    console.log(`[API] Cuisine: ${cuisine}, Type: ${itemType}`);
-
-    // Step 1: Build the recipe generation system prompt
-    const systemPrompt = generateRecipeSystemPrompt({
-      name_en: nameEn,
-      name_es: nameEs,
-      cuisine,
-      item_type: itemType,
-      description,
-      servings,
-    });
-
-    // Step 2: Call Claude API for recipe generation
-    console.log('[API] Calling Claude API for recipe generation...');
-    const recipeResponse = await generateRecipeWithClaude(systemPrompt);
-    console.log('[API] Claude API returned recipe successfully');
-    console.log(`[API] Yield statement: ${recipeResponse.yield_statement}`);
-    console.log(`[API] Ingredients count: ${recipeResponse.ingredients.length}`);
-    console.log(`[API] Equipment: ${recipeResponse.equipment.join(', ')}`);
-
-    // Step 3: Save recipe to Supabase
-    console.log('[API] Saving recipe to Supabase...');
-    const savedRecipe = await saveRecipe({
-      menu_item_id: menuItemId,
-      full_recipe_es: recipeResponse.full_recipe_es,
-      ingredients_json: { ingredients: recipeResponse.ingredients },
-      yield_statement: recipeResponse.yield_statement,
-      equipment: recipeResponse.equipment,
-    });
-
-    if (!savedRecipe) {
-      throw new Error('Failed to save recipe to database');
-    }
-
-    console.log(`[API] Recipe saved successfully! ID: ${savedRecipe.id}`);
-
-    // Step 4: Return the recipe
-    return NextResponse.json({
-      success: true,
-      recipe: {
-        id: savedRecipe.id,
-        full_recipe_es: recipeResponse.full_recipe_es,
-        ingredients: recipeResponse.ingredients,
-        yield_statement: recipeResponse.yield_statement,
-        equipment: recipeResponse.equipment,
-      },
-    });
-  } catch (error) {
-    console.error('[API] Error generating recipe:', error);
-
-    return NextResponse.json(
-      {
-        success: false,
-        error: error instanceof Error ? error.message : 'Failed to generate recipe',
-      },
-      { status: 500 }
+    body = await request.json();
+  } catch {
+    return Response.json(
+      { success: false, error: 'Invalid request body' },
+      { status: 400 }
     );
   }
+
+  const { menuItemId, nameEn, nameEs, cuisine, itemType, description, servings } = body;
+
+  if (!menuItemId || !nameEn || !nameEs || !cuisine || !itemType || !description || !servings) {
+    return Response.json(
+      { success: false, error: 'Missing required fields' },
+      { status: 400 }
+    );
+  }
+
+  // Return a streaming response so Vercel keeps the function alive.
+  // Heartbeat spaces are sent every 5s while Claude generates the recipe.
+  // The final JSON payload is appended at the end — the client's response.json()
+  // reads the full body and JSON.parse ignores the leading whitespace.
+  const encoder = new TextEncoder();
+
+  const stream = new ReadableStream({
+    async start(controller) {
+      const heartbeat = setInterval(() => {
+        try {
+          controller.enqueue(encoder.encode(' '));
+        } catch {
+          clearInterval(heartbeat);
+        }
+      }, 5000);
+
+      try {
+        const systemPrompt = generateRecipeSystemPrompt({
+          name_en: nameEn,
+          name_es: nameEs,
+          cuisine,
+          item_type: itemType,
+          description,
+          servings,
+        });
+
+        const recipeResponse = await generateRecipeWithClaude(systemPrompt);
+
+        const savedRecipe = await saveRecipe({
+          menu_item_id: menuItemId,
+          full_recipe_es: recipeResponse.full_recipe_es,
+          ingredients_json: { ingredients: recipeResponse.ingredients },
+          yield_statement: recipeResponse.yield_statement,
+          equipment: recipeResponse.equipment,
+        });
+
+        if (!savedRecipe) {
+          throw new Error('Failed to save recipe to database');
+        }
+
+        controller.enqueue(
+          encoder.encode(
+            JSON.stringify({
+              success: true,
+              recipe: {
+                id: savedRecipe.id,
+                full_recipe_es: recipeResponse.full_recipe_es,
+                ingredients: recipeResponse.ingredients,
+                yield_statement: recipeResponse.yield_statement,
+                equipment: recipeResponse.equipment,
+              },
+            })
+          )
+        );
+      } catch (error) {
+        controller.enqueue(
+          encoder.encode(
+            JSON.stringify({
+              success: false,
+              error: error instanceof Error ? error.message : 'Failed to generate recipe',
+            })
+          )
+        );
+      } finally {
+        clearInterval(heartbeat);
+        controller.close();
+      }
+    },
+  });
+
+  return new Response(stream, {
+    headers: {
+      'Content-Type': 'text/plain; charset=utf-8',
+      'X-Content-Type-Options': 'nosniff',
+    },
+  });
 }
