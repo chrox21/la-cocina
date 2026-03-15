@@ -135,7 +135,8 @@ export function MenuCard({ item, menuId }: MenuCardProps) {
         }),
       });
 
-      const data = await response.json();
+      const text = await response.text();
+      const data = JSON.parse(text.trim());
 
       if (data.success && data.recipe?.id) {
         setRecipeState(item.id, { status: 'approved', recipeId: data.recipe.id });
