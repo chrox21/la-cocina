@@ -251,7 +251,7 @@ export async function generateRecipeWithClaude(
 
     const response = await anthropic.messages.create({
       model: 'claude-sonnet-4-6',
-      max_tokens: 8192,
+      max_tokens: 4096,
       temperature: 0.7,
       system: systemPrompt,
       messages: [
@@ -260,6 +260,8 @@ export async function generateRecipeWithClaude(
           content: 'Generate the complete recipe.',
         },
       ],
+    }, {
+      timeout: 50 * 1000, // 50s — leaves ~10s headroom within Vercel's 60s maxDuration
     });
 
     // Extract text content
