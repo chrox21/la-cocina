@@ -74,6 +74,46 @@ export async function getRecipeById(recipeId: string): Promise<Recipe | null> {
 }
 
 /**
+ * Fetch all recipes for a given menu, joined through menu_items.
+ * Returns recipes ordered: mains, sides, breakfast, drink.
+ */
+export async function getRecipesByMenuId(menuId: string): Promise<Array<Recipe & { item_type: string; name_en: string; name_es: string; sort_order: number }>> {
+  try {
+    const { data, error } = await getSupabaseServer()
+      .from('menu_items')
+      .select('item_type, name_en, name_es, sort_order, recipes(*)')
+      .eq('menu_id', menuId)
+      .order('sort_order', { ascending: true });
+
+    if (error) throw error;
+
+    // Flatten: each menu_item has a nested recipes array (0 or 1 entry)
+    const results: Array<Recipe & { item_type: string; name_en: string; name_es: string; sort_order: number }> = [];
+    for (const item of data || []) {
+      const recipes = item.recipes as unknown as Recipe[];
+      if (recipes && recipes.length > 0) {
+        results.push({
+          ...recipes[0],
+          item_type: item.item_type,
+          name_en: item.name_en,
+          name_es: item.name_es,
+          sort_order: item.sort_order,
+        });
+      }
+    }
+
+    // Sort: mains first, then sides, then breakfast, then drink
+    const typeOrder: Record<string, number> = { main: 0, side: 1, breakfast: 2, drink: 3 };
+    results.sort((a, b) => (typeOrder[a.item_type] ?? 9) - (typeOrder[b.item_type] ?? 9) || a.sort_order - b.sort_order);
+
+    return results;
+  } catch (error) {
+    console.error('[DB] Error fetching recipes by menu:', error);
+    return [];
+  }
+}
+
+/**
  * Fetch a recipe by its menu_item_id
  * @param menuItemId Menu item UUID
  * @returns Recipe or null

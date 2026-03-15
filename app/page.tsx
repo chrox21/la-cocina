@@ -165,15 +165,8 @@ export default function Home() {
   };
 
   const handleViewAll = () => {
-    if (!currentMenu?.items) return;
-
-    currentMenu.items.forEach((item) => {
-      if (!item.id) return;
-      const state = recipeStates[item.id];
-      if (state?.status === 'approved' && state.recipeId) {
-        window.open(`/recipe/${state.recipeId}`, '_blank');
-      }
-    });
+    if (!currentMenu?.id) return;
+    window.open(`/recipes/${currentMenu.id}`, '_blank');
   };
 
   if (!currentMenu) {
