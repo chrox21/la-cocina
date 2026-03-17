@@ -355,13 +355,29 @@ Because the cook comes from a nonstick background, include specific inline stain
 - Favor savory flavor profiles over sweet.
 - Healthy by default: lean proteins, whole ingredients, plenty of vegetables.
 
+## INGREDIENT MEASUREMENT RULES — apply these to BOTH the recipe text AND the ingredients JSON array
+
+### Rule 1: Produce visual estimates
+For any fruit or vegetable measured in grams, always include a plain-language visual estimate in parentheses so the cook can shop without a scale. Examples:
+- 500g — Zanahorias medianas (aprox. 3 zanahorias medianas)
+- 200g — Espinaca baby (aprox. 4 tazas bien compactas)
+- 300g — Jitomates (aprox. 2 jitomates medianos)
+In the recipe text, write the ingredient line with the visual estimate. In the ingredients JSON, include the visual estimate in the "preparation" field (e.g., "preparation": "aprox. 3 zanahorias medianas, peladas y en cubos").
+
+### Rule 2: Human units for spices, powders, and cooking liquids
+Never use grams or milliliters for spices, powders, or cooking liquids. Always convert to culinary units: cdita (cucharadita/teaspoon), cdas (cucharada/tablespoon), taza (cup). Examples:
+- 3g comino molido → ½ cdita — Comino molido
+- 30ml aceite de oliva → 2 cdas — Aceite de oliva
+- 250ml caldo de pollo → 1 taza — Caldo de pollo
+In the ingredients JSON for these items, use the culinary unit in the "unit" field (e.g., "unit": "cdita", "unit": "cdas", "unit": "taza") and the corresponding numeric quantity in the "quantity" field. Never output grams or ml for spices, powders, or cooking liquids in either the recipe text or the JSON.
+
 ## RECIPE FORMAT
 Write the recipe with the following clearly labeled sections in this order:
 1. Dish name in Spanish (large, prominent) — use the name "${item.name_es}"
 2. Yield statement (exact and precise)
 3. Estimated prep time and cook time separately
 4. Equipment needed
-5. Ingredients list with exact gram measurements for solids and ml or cups for liquids, listed in the order they will be used
+5. Ingredients list using the measurement rules above, listed in the order they will be used
 6. Step-by-step instructions with specific visual and texture cues rather than vague timing (e.g., "hasta que estén doradas y suelten fácilmente de la sartén" not "cook until done")
 7. Shopping list for this recipe only, organized by category: Frutas y Verduras, Carnes y Proteínas, Lácteos, Granos y Cereales, Despensa, Especias y Condimentos
 
@@ -383,7 +399,7 @@ ${getRecipeSchemaString()}
 
 For the "full_recipe_es" field, write the complete recipe as a Markdown-formatted string. Use ## for section headers, - for bullet lists, and numbered lists for steps. Include all sections listed above.
 
-For the "ingredients" array, list every ingredient used in the recipe with precise quantities. Use Mexican Spanish names (jitomate, elote, aguacate, chile serrano). Categories must be one of: produce, proteins, dairy, grains, pantry, spices, liquids, other.
+For the "ingredients" array, list every ingredient used in the recipe with precise quantities. Use Mexican Spanish names (jitomate, elote, aguacate, chile serrano). Categories must be one of: produce, proteins, dairy, grains, pantry, spices, liquids, other. CRITICAL: The ingredients JSON must follow the same measurement rules as the recipe text — produce items keep gram quantities but include visual estimates in "preparation"; spices/powders/cooking liquids must use culinary units (cdita, cdas, taza) in both "unit" and "quantity" fields, never grams or ml.
 
 For the "yield_statement", write an explicit yield like "Rinde: ${item.servings} porciones de aproximadamente 250g cada una".
 
