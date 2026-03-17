@@ -1,4 +1,4 @@
-import { generateRecipeWithClaude } from '@/lib/ai/client';
+import { generateRecipeWithRetry } from '@/lib/ai/client';
 import { generateRecipeSystemPrompt } from '@/lib/ai/prompts';
 import { saveRecipe } from '@/lib/db/recipes';
 
@@ -62,7 +62,7 @@ export async function POST(request: Request) {
           servings,
         });
 
-        const recipeResponse = await generateRecipeWithClaude(systemPrompt);
+        const recipeResponse = await generateRecipeWithRetry(systemPrompt);
 
         const savedRecipe = await saveRecipe({
           menu_item_id: menuItemId,

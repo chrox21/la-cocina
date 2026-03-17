@@ -18,13 +18,20 @@ const anthropic = new Anthropic({
 /**
  * Extract JSON from Claude's response, handling markdown code fences.
  * Claude often wraps JSON in ```json ... ``` or ``` ... ``` blocks.
+ * If multiple code fences exist, prefer the last one (most likely the JSON).
  */
 function extractJSON(text: string): string {
-  // Try to find JSON inside markdown code fences
-  const codeBlockMatch = text.match(/```(?:json)?\s*\n?([\s\S]*?)\n?\s*```/);
-  if (codeBlockMatch) {
+  // Find all markdown code fence blocks; prefer the last match (Claude
+  // sometimes adds an explanation block before the JSON block).
+  const codeBlockRegex = /```(?:json)?\s*\n?([\s\S]*?)\n?\s*```/g;
+  let lastMatch: string | null = null;
+  let m: RegExpExecArray | null;
+  while ((m = codeBlockRegex.exec(text)) !== null) {
+    lastMatch = m[1].trim();
+  }
+  if (lastMatch) {
     console.log('[Claude API] Stripped markdown code fences from response');
-    return codeBlockMatch[1].trim();
+    return lastMatch;
   }
 
   // Try to find a JSON object directly (first { to last })
@@ -35,6 +42,55 @@ function extractJSON(text: string): string {
 
   // Return as-is if no patterns found
   return text.trim();
+}
+
+/**
+ * Sanitize a JSON string to fix common issues that break JSON.parse:
+ * - Control characters inside string values (unescaped tabs, etc.)
+ * - Trailing commas before } or ]
+ */
+function sanitizeJSON(jsonString: string): string {
+  let s = jsonString;
+
+  // Remove control characters (U+0000–U+001F) that aren't valid unescaped
+  // in JSON strings, EXCEPT for \n (\x0A), \r (\x0D), and \t (\x09) which
+  // we replace with their escape sequences.
+  s = s.replace(/\t/g, '\\t');
+  // eslint-disable-next-line no-control-regex
+  s = s.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '');
+
+  // Remove trailing commas before } or ] (common LLM mistake)
+  s = s.replace(/,\s*([\]}])/g, '$1');
+
+  return s;
+}
+
+/**
+ * Attempt to parse a JSON string, with sanitization fallback.
+ * Logs the actual parse error position for debugging.
+ */
+function safeJSONParse(jsonString: string, label: string): unknown {
+  // First attempt: parse as-is
+  try {
+    return JSON.parse(jsonString);
+  } catch (firstError) {
+    const pos = firstError instanceof SyntaxError ? firstError.message : 'unknown';
+    console.warn(`[Claude API] ${label} first parse failed: ${pos}`);
+  }
+
+  // Second attempt: sanitize and retry
+  const sanitized = sanitizeJSON(jsonString);
+  try {
+    console.log(`[Claude API] ${label} retrying with sanitized JSON`);
+    return JSON.parse(sanitized);
+  } catch (secondError) {
+    const pos = secondError instanceof SyntaxError ? secondError.message : 'unknown';
+    // Log a window around the error for debugging
+    console.error(`[Claude API] ${label} sanitized parse also failed: ${pos}`);
+    console.error(`[Claude API] ${label} first 1000 chars:`, jsonString.substring(0, 1000));
+    console.error(`[Claude API] ${label} last 500 chars:`, jsonString.substring(jsonString.length - 500));
+    throw new Error(`Failed to parse JSON response from Claude (${pos})`);
+  }
 }
 
 /**
@@ -72,14 +128,8 @@ export async function generateMenuWithClaude(
     // Extract JSON (handles markdown code fences)
     const jsonString = extractJSON(textContent);
 
-    // Parse JSON response
-    let parsedResponse;
-    try {
-      parsedResponse = JSON.parse(jsonString);
-    } catch (parseError) {
-      console.error('[Claude API] JSON parse error. Raw response:', textContent.substring(0, 500));
-      throw new Error('Failed to parse JSON response from Claude');
-    }
+    // Parse JSON response (with sanitization fallback)
+    const parsedResponse = safeJSONParse(jsonString, 'Menu');
 
     // Validate response against schema
     const validatedResponse = validateMenuResponse(parsedResponse);
@@ -161,19 +211,13 @@ export async function modifyMenuWithClaude(
     // Extract JSON (handles markdown code fences)
     const jsonString = extractJSON(textContent);
 
-    // Parse JSON response
-    let parsedResponse;
-    try {
-      parsedResponse = JSON.parse(jsonString);
-    } catch (parseError) {
-      console.error('[Claude API] Modify JSON parse error. Raw response:', textContent.substring(0, 500));
-      throw new Error('Failed to parse JSON response from Claude');
-    }
+    // Parse JSON response (with sanitization fallback)
+    const parsedResponse = safeJSONParse(jsonString, 'Modify') as Record<string, unknown>;
 
     // Validate response against schema
     const validatedResponse = validateModificationResponse(parsedResponse);
 
-    console.log('[Claude API] Menu modification successful! Items to update:', parsedResponse.modifications?.items_to_update?.length);
+    console.log('[Claude API] Menu modification successful! Items to update:', validatedResponse.modifications?.items_to_update?.length);
     return validatedResponse;
   } catch (error) {
     console.error('[Claude API] Error modifying menu:', error);
@@ -214,19 +258,13 @@ export async function getSwapAlternatives(
     // Extract JSON (handles markdown code fences)
     const jsonString = extractJSON(textContent);
 
-    // Parse JSON response
-    let parsedResponse;
-    try {
-      parsedResponse = JSON.parse(jsonString);
-    } catch (parseError) {
-      console.error('[Claude API] Swap JSON parse error. Raw response:', textContent.substring(0, 500));
-      throw new Error('Failed to parse JSON response from Claude');
-    }
+    // Parse JSON response (with sanitization fallback)
+    const parsedResponse = safeJSONParse(jsonString, 'Swap') as Record<string, unknown>;
 
     // Validate response against schema
     const validatedResponse = validateSwapResponse(parsedResponse);
 
-    console.log('[Claude API] Swap alternatives retrieved! Count:', parsedResponse.alternatives?.length);
+    console.log('[Claude API] Swap alternatives retrieved! Count:', validatedResponse.alternatives?.length);
     return validatedResponse;
   } catch (error) {
     console.error('[Claude API] Error getting swap alternatives:', error);
@@ -241,10 +279,12 @@ export async function getSwapAlternatives(
 /**
  * Generate a complete recipe using Claude API
  * @param systemPrompt System prompt with recipe requirements
+ * @param userMessage User message (can be overridden for retry)
  * @returns Parsed and validated recipe response
  */
 export async function generateRecipeWithClaude(
-  systemPrompt: string
+  systemPrompt: string,
+  userMessage: string = 'Generate the complete recipe.'
 ): Promise<RecipeGenerationResponse> {
   try {
     console.log('[Claude API] Sending recipe generation request...');
@@ -257,7 +297,7 @@ export async function generateRecipeWithClaude(
       messages: [
         {
           role: 'user',
-          content: 'Generate the complete recipe.',
+          content: userMessage,
         },
       ],
     }, {
@@ -273,14 +313,8 @@ export async function generateRecipeWithClaude(
     // Extract JSON (handles markdown code fences)
     const jsonString = extractJSON(textContent);
 
-    // Parse JSON response
-    let parsedResponse;
-    try {
-      parsedResponse = JSON.parse(jsonString);
-    } catch (parseError) {
-      console.error('[Claude API] Recipe JSON parse error. Raw response:', textContent.substring(0, 500));
-      throw new Error('Failed to parse JSON response from Claude');
-    }
+    // Parse JSON response (with sanitization fallback)
+    const parsedResponse = safeJSONParse(jsonString, 'Recipe');
 
     // Validate response against schema
     const validatedResponse = validateRecipeResponse(parsedResponse);
@@ -290,6 +324,35 @@ export async function generateRecipeWithClaude(
   } catch (error) {
     console.error('[Claude API] Error generating recipe:', error);
     throw error;
+  }
+}
+
+/**
+ * Retry wrapper for recipe generation with one retry attempt.
+ * If the first attempt fails due to parse/validation error, retry with
+ * a correction prompt emphasizing valid JSON output.
+ */
+export async function generateRecipeWithRetry(
+  systemPrompt: string
+): Promise<RecipeGenerationResponse> {
+  try {
+    return await generateRecipeWithClaude(systemPrompt);
+  } catch {
+    console.warn('[Claude API] Recipe first attempt failed, retrying with correction prompt...');
+
+    const correctionMessage = `Generate the complete recipe.
+
+CRITICAL: You must respond with ONLY valid JSON. No markdown code blocks, no explanations, no text before or after the JSON. Just pure JSON starting with { and ending with }.
+- All string values must be properly escaped (use \\n for newlines, \\" for quotes).
+- The "quantity" field must always be a number (e.g., 0.5 not "½").
+- Fractions like ½ must appear only inside string fields, never as bare values.`;
+
+    try {
+      return await generateRecipeWithClaude(systemPrompt, correctionMessage);
+    } catch (retryError) {
+      console.error('[Claude API] Recipe retry failed:', retryError);
+      throw new Error('Failed to generate recipe after retry');
+    }
   }
 }
 
@@ -324,11 +387,12 @@ export async function checkCohesion(
       .join('');
 
     // Parse JSON response
-    const parsed = JSON.parse(textContent);
+    const jsonString = extractJSON(textContent);
+    const parsed = safeJSONParse(jsonString, 'Cohesion') as Record<string, unknown>;
 
     return {
-      cohesive: parsed.cohesive,
-      reason: parsed.reason
+      cohesive: Boolean(parsed.cohesive),
+      reason: String(parsed.reason || '')
     };
   } catch (error) {
     console.error('[Claude API] Error checking cohesion:', error);
