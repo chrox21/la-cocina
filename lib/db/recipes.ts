@@ -32,6 +32,9 @@ export async function saveRecipe(recipe: {
   equipment: string[];
 }): Promise<Recipe | null> {
   try {
+    console.log('[DB] saveRecipe called with menu_item_id:', recipe.menu_item_id);
+    console.log('[DB] saveRecipe payload sizes — full_recipe_es:', recipe.full_recipe_es?.length, 'ingredients_json keys:', Object.keys(recipe.ingredients_json), 'equipment:', recipe.equipment?.length, 'yield_statement:', recipe.yield_statement?.length);
+
     const { data, error } = await getSupabaseServer()
       .from('recipes')
       .insert({
@@ -44,10 +47,14 @@ export async function saveRecipe(recipe: {
       .select()
       .single();
 
-    if (error) throw error;
+    if (error) {
+      console.error('[DB] Supabase insert error — code:', error.code, 'message:', error.message, 'details:', error.details, 'hint:', error.hint);
+      throw error;
+    }
+    console.log('[DB] Recipe saved successfully, id:', data?.id);
     return data as Recipe;
   } catch (error) {
-    console.error('[DB] Error saving recipe:', error);
+    console.error('[DB] Error saving recipe — full error:', JSON.stringify(error, null, 2));
     return null;
   }
 }
