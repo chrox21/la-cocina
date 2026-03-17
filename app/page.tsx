@@ -111,52 +111,50 @@ export default function Home() {
       return;
     }
 
-    // Set all to generating
-    itemsToApprove.forEach((item) => {
-      if (item.id) {
-        setRecipeState(item.id, { status: 'generating' });
-      }
-    });
+    // Generate recipes one at a time so we stay within Vercel concurrency
+    // limits. Each card flips to "generating" only when its turn starts,
+    // then to "approved" or back to "idle" when done — giving the user
+    // visible progress as each recipe completes.
+    let failedCount = 0;
 
-    // Fire all recipe generation calls in parallel
-    const results = await Promise.allSettled(
-      itemsToApprove.map(async (item) => {
-        if (!item.id) return;
+    for (const item of itemsToApprove) {
+      if (!item.id) continue;
 
-        const approvedServings = item.user_servings_override || item.servings;
+      const approvedServings = item.user_servings_override || item.servings;
+      setRecipeState(item.id, { status: 'generating' });
 
-        try {
-          const response = await fetch('/api/recipes/generate', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              menuItemId: item.id,
-              nameEn: item.name_en,
-              nameEs: item.name_es,
-              cuisine: item.cuisine,
-              itemType: item.item_type,
-              description: item.description,
-              servings: approvedServings,
-            }),
-          });
+      try {
+        const response = await fetch('/api/recipes/generate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            menuItemId: item.id,
+            nameEn: item.name_en,
+            nameEs: item.name_es,
+            cuisine: item.cuisine,
+            itemType: item.item_type,
+            description: item.description,
+            servings: approvedServings,
+          }),
+        });
 
-          const text = await response.text();
-          const data = JSON.parse(text.trim());
+        const text = await response.text();
+        const data = JSON.parse(text.trim());
 
-          if (data.success && data.recipe?.id) {
-            setRecipeState(item.id, { status: 'approved', recipeId: data.recipe.id });
-          } else {
-            console.error(`[ApproveAll] Recipe generation failed for ${item.name_en}:`, data.error);
-            setRecipeState(item.id, { status: 'idle' });
-          }
-        } catch (error) {
-          console.error(`[ApproveAll] Error generating recipe for ${item.name_en}:`, error);
+        if (data.success && data.recipe?.id) {
+          setRecipeState(item.id, { status: 'approved', recipeId: data.recipe.id });
+        } else {
+          console.error(`[ApproveAll] Recipe generation failed for ${item.name_en}:`, data.error);
           setRecipeState(item.id, { status: 'idle' });
+          failedCount++;
         }
-      })
-    );
+      } catch (error) {
+        console.error(`[ApproveAll] Error generating recipe for ${item.name_en}:`, error);
+        setRecipeState(item.id, { status: 'idle' });
+        failedCount++;
+      }
+    }
 
-    const failedCount = results.filter((r) => r.status === 'rejected').length;
     if (failedCount > 0) {
       setError(`${failedCount} recipe(s) failed to generate. You can retry by clicking Approve on individual cards.`);
     }
